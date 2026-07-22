@@ -1,0 +1,6 @@
+.pio
+.vscode/.browse.c_cpp.db*
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components

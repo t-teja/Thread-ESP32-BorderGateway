@@ -1,0 +1,32 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "wifi_net.c"
+        "hub_settings.c"
+        "dns_server.c"
+        "captive_portal_html.c"
+        "device_registry.c"
+        "pairing.c"
+        "ble_central.c"
+        "web_server.c"
+        "mqtt_bridge.c"
+        "otbr_net.c"
+        "util_slug.c"
+    INCLUDE_DIRS
+        "."
+        "../include"
+        "../../shared/protocol"
+    REQUIRES
+        nvs_flash
+        esp_wifi
+        esp_event
+        esp_netif
+        esp_http_server
+        mqtt
+        bt
+        json
+        esp_timer
+        driver
+        esp_driver_gpio
+        lwip
+)

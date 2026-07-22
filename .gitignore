@@ -1,0 +1,14 @@
+.DS_Store
+.pio
+.vscode/.browse.c_cpp.db*
+**/sdkconfig
+**/sdkconfig.old
+**/dependencies.lock
+**/managed_components
+**/include/secrets.h
+*.pem
+.idea
+**/.pio/
+**/.vscode/
+**/sdkconfig.esp32*
+*.code-workspace

@@ -1,0 +1,9 @@
+.pio
+.vscode
+sdkconfig
+sdkconfig.old
+sdkconfig.esp32s3
+dependencies.lock
+managed_components
+include/secrets.h
+portal.html

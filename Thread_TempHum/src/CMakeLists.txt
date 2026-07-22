@@ -1,0 +1,26 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "app_button.c"
+        "app_led.c"
+        "sensor_nvs.c"
+        "ble_peripheral.c"
+        "thread_net.c"
+        "mqtt_sensor.c"
+        "sht_sensor.c"
+    INCLUDE_DIRS
+        "."
+        "../include"
+        "../../shared/protocol"
+    REQUIRES
+        nvs_flash
+        bt
+        mqtt
+        json
+        esp_timer
+        driver
+        esp_driver_gpio
+        esp_driver_i2c
+        esp_event
+        esp_netif
+)
