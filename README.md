@@ -80,3 +80,12 @@ See shared/protocol/mqtt_schema.md. Hub also subscribes to device state for the 
 ## License
 
 Private / project use unless otherwise stated.
+
+
+## Gateway flash (S3 only)
+
+You only flash the ESP32-S3. The hub embeds RCP firmware and auto-programs the onboard H2 on first boot (or when the RCP image is updated).
+
+Developer PC (only when RCP code changes): build Thread_RCP, then run python Thread_BorderGateway/tools/prepare_rcp_image.py, then flash Thread_BorderGateway to the S3.
+
+See docs/FLASHING.md.

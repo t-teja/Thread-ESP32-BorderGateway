@@ -1,0 +1,9 @@
+menu "Thread Hub RCP"
+
+    config HUB_FORCE_RCP_UPDATE
+        bool "Force RCP update every boot (debug)"
+        default n
+        help
+            When set, hub always runs RCP flasher path after init.
+
+endmenu

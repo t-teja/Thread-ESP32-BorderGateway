@@ -14,6 +14,7 @@ idf_component_register(
         "mqtt_bridge.c"
         "otbr_net.c"
         "util_slug.c"
+        "rcp_auto.c"
     INCLUDE_DIRS
         "."
         "../include"
@@ -36,4 +37,5 @@ idf_component_register(
         mbedtls
         vfs
         mdns
+        spiffs
 )

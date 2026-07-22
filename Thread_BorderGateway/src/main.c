@@ -15,6 +15,7 @@
 #include "mqtt_bridge.h"
 #include "nvs_flash.h"
 #include "otbr_net.h"
+#include "rcp_auto.h"
 #include "pairing.h"
 #include "web_server.h"
 #include "wifi_net.h"
@@ -51,6 +52,8 @@ void app_main(void)
         /* OTBR needs STA backbone first */
         mdns_init();
         mdns_hostname_set("thread-hub");
+        /* S3 programs onboard H2 RCP if needed (no manual H2 flash) */
+        rcp_auto_init_and_update();
         otbr_net_init();
         ble_central_init();
         if (hub_settings_has_mqtt()) {
@@ -62,7 +65,7 @@ void app_main(void)
         wifi_net_get_hub_id(hub_id, sizeof(hub_id));
         ESP_LOGI(TAG, "Hub %s ip=%s thread=%s", hub_id, wifi_net_get_ip(), otbr_net_status_text());
         ESP_LOGI(TAG, "Dashboard http://%s/", wifi_net_get_ip());
-        ESP_LOGI(TAG, "Flash RCP firmware to H2 first (Thread_RCP project)");
+        ESP_LOGI(TAG, "RCP auto-update enabled (S3 flashes H2 on first boot / mismatch)");
         ESP_LOGI(TAG, "Factory reset: hold BOOT %d ms", HUB_FACTORY_HOLD_MS);
     }
 

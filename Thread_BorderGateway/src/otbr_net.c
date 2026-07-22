@@ -33,6 +33,11 @@
 #include "openthread/thread.h"
 #include "openthread/thread_ftd.h"
 #include "wifi_net.h"
+#include "rcp_auto.h"
+
+#if __has_include("esp_ot_rcp_update.h")
+#include "esp_ot_rcp_update.h"
+#endif
 
 static const char *TAG = "otbr";
 static bool s_ready;
@@ -93,6 +98,7 @@ static void start_thread(void)
     ESP_ERROR_CHECK(otThreadSetEnabled(inst, true) == OT_ERROR_NONE ? ESP_OK : ESP_FAIL);
     s_ready = true;
     if (s_ready_sem) xSemaphoreGive(s_ready_sem);
+    rcp_auto_mark_ok();
     ESP_LOGI(TAG, "Thread stack enabled, role will become leader/router");
 }
 
@@ -129,6 +135,11 @@ static void ot_task(void *arg)
     esp_openthread_lock_acquire(portMAX_DELAY);
     start_thread();
     esp_openthread_lock_release();
+#if __has_include("esp_ot_rcp_update.h")
+    /* Reconcile RCP version with packaged image (may reboot if update) */
+    esp_ot_update_rcp_if_different();
+#endif
+
 
     s_started = true;
     esp_openthread_launch_mainloop();

@@ -1,2 +1,3 @@
 dependencies:
   espressif/mdns: "^1.8.0"
+  espressif/esp_rcp_update: "~1.6.0"
