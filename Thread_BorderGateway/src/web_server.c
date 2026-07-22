@@ -174,6 +174,12 @@ static esp_err_t read_body(httpd_req_t *req, char *buf, size_t buflen)
     return ESP_OK;
 }
 
+static esp_err_t h_favicon(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "204 No Content");
+    return httpd_resp_send(req, NULL, 0);
+}
+
 static esp_err_t h_root(httpd_req_t *req)
 {
     if (wifi_net_is_ap_mode()) {
@@ -377,6 +383,7 @@ esp_err_t web_server_start(void)
 
     const httpd_uri_t routes[] = {
         {.uri = "/", .method = HTTP_GET, .handler = h_root},
+        {.uri = "/favicon.ico", .method = HTTP_GET, .handler = h_favicon},
         {.uri = "/settings", .method = HTTP_GET, .handler = h_settings_page},
         {.uri = "/api/status", .method = HTTP_GET, .handler = h_status},
         {.uri = "/api/settings", .method = HTTP_GET, .handler = h_api_settings_get},

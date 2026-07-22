@@ -2,7 +2,7 @@
 
 #include "device_types.h"
 
-#define HUB_FW_VERSION       "0.2.0"
+#define HUB_FW_VERSION       "0.2.1"
 #define HUB_HTTP_PORT        80
 #define HUB_PAIR_DEFAULT_SEC HUB_PAIR_WINDOW_SEC
 
@@ -12,6 +12,11 @@
 #define HUB_AP_IP_ADDR       "192.168.4.1"
 #define HUB_DEFAULT_HOSTNAME "thread-hub"
 #define HUB_DEFAULT_TOPIC_BASE "home"
+
+/* BOOT button (active low) - factory reset to captive portal */
+#define HUB_FACTORY_BTN_GPIO     0
+#define HUB_FACTORY_HOLD_MS      5000
+#define HUB_FACTORY_BOOT_HOLD_MS 8000
 
 /** When OTBR not linked, BLE provision still works; dataset may be placeholder */
 #define HUB_OTBR_ENABLED     0

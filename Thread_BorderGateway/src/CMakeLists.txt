@@ -3,6 +3,7 @@ idf_component_register(
         "main.c"
         "wifi_net.c"
         "hub_settings.c"
+        "hub_button.c"
         "dns_server.c"
         "captive_portal_html.c"
         "device_registry.c"

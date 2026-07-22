@@ -20,6 +20,7 @@ static char s_status_topic[96];
 static char s_info_topic[96];
 static char s_reg_topic[96];
 static char s_evt_topic[96];
+static char s_uri[160];
 
 static void make_topics(void)
 {
@@ -36,18 +37,31 @@ static void on_mqtt(void *args, esp_event_base_t base, int32_t id, void *data)
 {
     (void)args;
     (void)base;
-    (void)data;
+    esp_mqtt_event_handle_t event = data;
     switch ((esp_mqtt_event_id_t)id) {
     case MQTT_EVENT_CONNECTED:
         s_connected = true;
-        ESP_LOGI(TAG, "connected");
+        ESP_LOGI(TAG, "connected to %s", s_uri);
         esp_mqtt_client_publish(s_client, s_status_topic, "online", 0, 1, 1);
         mqtt_bridge_publish_info();
         mqtt_bridge_publish_registry();
         break;
     case MQTT_EVENT_DISCONNECTED:
         s_connected = false;
-        ESP_LOGW(TAG, "disconnected");
+        ESP_LOGW(TAG, "disconnected from %s (will retry)", s_uri);
+        break;
+    case MQTT_EVENT_ERROR:
+        s_connected = false;
+        if (event && event->error_handle) {
+            ESP_LOGE(TAG,
+                     "cannot reach broker %s (type=%d sock_errno=%d). "
+                     "Check Mosquitto is running, bound to 0.0.0.0:1883 not only 127.0.0.1, "
+                     "Windows firewall allows LAN:1883, and Settings MQTT host is the mini PC LAN IP.",
+                     s_uri, (int)event->error_handle->error_type,
+                     (int)event->error_handle->esp_transport_sock_errno);
+        } else {
+            ESP_LOGE(TAG, "error reaching %s", s_uri);
+        }
         break;
     default:
         break;
@@ -57,17 +71,22 @@ static void on_mqtt(void *args, esp_event_base_t base, int32_t id, void *data)
 esp_err_t mqtt_bridge_start(void)
 {
     if (!hub_settings_has_mqtt()) {
-        ESP_LOGW(TAG, "MQTT host not configured — skip");
+        ESP_LOGW(TAG, "MQTT host not configured - skip");
         return ESP_ERR_INVALID_STATE;
     }
     const hub_settings_t *c = hub_settings_get();
     make_topics();
-    char uri[160];
-    snprintf(uri, sizeof(uri), "mqtt://%s:%u", c->mqtt_host, (unsigned)(c->mqtt_port ? c->mqtt_port : 1883));
+    snprintf(s_uri, sizeof(s_uri), "mqtt://%s:%u", c->mqtt_host,
+             (unsigned)(c->mqtt_port ? c->mqtt_port : 1883));
+    ESP_LOGI(TAG, "connecting to %s as %s user=%s", s_uri, s_hub_id,
+             c->mqtt_user[0] ? c->mqtt_user : "(none)");
 
     esp_mqtt_client_config_t cfg = {
-        .broker.address.uri = uri,
+        .broker.address.uri = s_uri,
         .credentials.client_id = s_hub_id,
+        .network.disable_auto_reconnect = false,
+        .network.reconnect_timeout_ms = 10000,
+        .network.timeout_ms = 10000,
         .session.last_will =
             {
                 .topic = s_status_topic,
@@ -82,33 +101,27 @@ esp_err_t mqtt_bridge_start(void)
     }
 
     s_client = esp_mqtt_client_init(&cfg);
+    if (!s_client) {
+        return ESP_FAIL;
+    }
     esp_mqtt_client_register_event(s_client, ESP_EVENT_ANY_ID, on_mqtt, NULL);
     return esp_mqtt_client_start(s_client);
 }
 
-bool mqtt_bridge_is_connected(void)
-{
-    return s_connected;
-}
+bool mqtt_bridge_is_connected(void) { return s_connected; }
 
 void mqtt_bridge_publish_registry(void)
 {
-    if (!s_client || !s_connected) {
-        return;
-    }
+    if (!s_client || !s_connected) return;
     char *json = registry_to_json();
-    if (!json) {
-        return;
-    }
+    if (!json) return;
     esp_mqtt_client_publish(s_client, s_reg_topic, json, 0, 1, 1);
     free(json);
 }
 
 void mqtt_bridge_publish_info(void)
 {
-    if (!s_client || !s_connected) {
-        return;
-    }
+    if (!s_client || !s_connected) return;
     char buf[320];
     snprintf(buf, sizeof(buf),
              "{\"ip\":\"%s\",\"fw\":\"%s\",\"devices\":%d,\"pair_open\":%s,\"hub_id\":\"%s\"}",
@@ -119,8 +132,6 @@ void mqtt_bridge_publish_info(void)
 
 void mqtt_bridge_publish_event(const char *json_object)
 {
-    if (!s_client || !s_connected || !json_object) {
-        return;
-    }
+    if (!s_client || !s_connected || !json_object) return;
     esp_mqtt_client_publish(s_client, s_evt_topic, json_object, 0, 0, 0);
 }

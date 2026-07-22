@@ -36,7 +36,12 @@ DIY Thread sensor hub with Hue-style pairing. Runs on the Espressif Thread Borde
 5. Enter home Wi-Fi and MQTT broker details, then save. The hub reboots onto your LAN.
 6. Open the dashboard at the hub IP (serial log or router DHCP). Use Add device to pair sensors.
 
-Reconfigure later from Settings on the dashboard, or factory-reset to return to the setup AP.
+Reconfigure later from Settings on the dashboard.
+
+Factory reset (back to captive portal):
+- Dashboard: Settings -> Factory reset
+- Hardware: hold the BOOT button 5 seconds while running, or 8 seconds at power-on
+
 
 ## Sensors
 

@@ -1,6 +1,6 @@
 /**
  * Thread Border Gateway hub (ESP32-S3).
- * Captive portal for Wi-Fi/MQTT, device dashboard, BLE pairing, MQTT bridge.
+ * Factory reset: hold BOOT 8s at power-on, or 5s while running -> captive portal.
  */
 #include <stdio.h>
 
@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "hub_button.h"
 #include "hub_config.h"
 #include "hub_settings.h"
 #include "mqtt_bridge.h"
@@ -32,8 +33,11 @@ void app_main(void)
     }
 
     hub_settings_init();
+    hub_button_check_boot_factory_reset();
+
     registry_init();
     pairing_init();
+    hub_button_start();
 
     err = wifi_net_start();
     if (err != ESP_OK) {
@@ -50,12 +54,17 @@ void app_main(void)
         otbr_net_init();
         ble_central_init();
         if (hub_settings_has_mqtt()) {
+            const hub_settings_t *s = hub_settings_get();
+            ESP_LOGI(TAG, "MQTT target %s:%u", s->mqtt_host, (unsigned)s->mqtt_port);
             mqtt_bridge_start();
+        } else {
+            ESP_LOGW(TAG, "No MQTT host configured - use Settings");
         }
         char hub_id[32];
         wifi_net_get_hub_id(hub_id, sizeof(hub_id));
         ESP_LOGI(TAG, "Hub ready id=%s ip=%s", hub_id, wifi_net_get_ip());
         ESP_LOGI(TAG, "Dashboard http://%s/", wifi_net_get_ip());
+        ESP_LOGI(TAG, "Factory reset: hold BOOT %d ms (or Settings page)", HUB_FACTORY_HOLD_MS);
     }
 
     while (1) {
