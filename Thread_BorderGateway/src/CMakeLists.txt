@@ -38,4 +38,5 @@ idf_component_register(
         vfs
         mdns
         spiffs
+        esp_rcp_update
 )

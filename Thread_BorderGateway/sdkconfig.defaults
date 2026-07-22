@@ -74,3 +74,4 @@ CONFIG_DEFAULT_PIN_TO_RCP_BOOT=8
 CONFIG_DEFAULT_PIN_TO_RCP_TX=17
 CONFIG_DEFAULT_PIN_TO_RCP_RX=18
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_RCP_SRC_DIR="/Volumes/ExtendedNVME/Development/Embedded-projects/Thread_Sensors/Thread_BorderGateway/rcp_build_dir"

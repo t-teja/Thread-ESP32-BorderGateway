@@ -39,3 +39,10 @@ Open Thread_TempHum, upload to sensor ESP32-H2. SHT30 SDA=5 SCL=4 addr 0x44.
 ## Factory reset hub
 
 Hold BOOT 5s while running, or 8s at power-on, or Settings page.
+
+## If RCP never auto-flashes
+
+1. Confirm full upload (not app-only). Serial upload log must mention rcp_fw.bin at 0x2c0000.
+2. After reboot look for early logs: rcp_auto: RCP auto-update start.
+3. If you see SPIFFS mount failed or used=0, the RCP partition was empty — rebuild hub and upload again.
+4. Expected SPIFFS path inside partition: /rcp_fw/rcp_0/rcp_image.

@@ -40,20 +40,31 @@ void app_main(void)
     hub_led_init();
     hub_button_start();
 
+    /*
+     * Program onboard H2 RCP before Wi-Fi/OTBR.
+     * Must not depend on STA — otherwise a slow Wi-Fi join hides RCP logs
+     * and a first boot can look like "RCP never ran".
+     */
+    err = rcp_auto_init_and_update();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "RCP auto-update not ready (%s) — OTBR may fail until rcp_fw is flashed",
+                 esp_err_to_name(err));
+    }
+
     err = wifi_net_start();
-    if (err != ESP_OK) ESP_LOGE(TAG, "Wi-Fi start failed");
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Wi-Fi start failed");
+    }
 
     web_server_start();
 
     if (wifi_net_is_ap_mode()) {
         dns_server_start();
         ESP_LOGW(TAG, "Captive portal SSID '%s' http://%s/", wifi_net_get_ap_ssid(), wifi_net_get_ip());
+        ESP_LOGW(TAG, "Configure Wi-Fi, then reboot — OTBR starts in STA mode");
     } else {
-        /* OTBR needs STA backbone first */
         mdns_init();
         mdns_hostname_set("thread-hub");
-        /* S3 programs onboard H2 RCP if needed (no manual H2 flash) */
-        rcp_auto_init_and_update();
         otbr_net_init();
         ble_central_init();
         if (hub_settings_has_mqtt()) {
@@ -71,6 +82,8 @@ void app_main(void)
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));
-        if (mqtt_bridge_is_connected()) mqtt_bridge_publish_info();
+        if (mqtt_bridge_is_connected()) {
+            mqtt_bridge_publish_info();
+        }
     }
 }
