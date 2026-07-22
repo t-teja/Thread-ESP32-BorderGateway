@@ -1,4 +1,8 @@
-/** ESP32-H2 Temp/Humidity — BLE pair, Thread stub, MQTT telemetry. */
+/**
+ * ESP32-H2 Temp/Humidity — BLE pair, OpenThread, SHT30, MQTT.
+ * Hold BOOT 3s: pair mode. Click: identify (local blink + hub via MQTT).
+ * Hold 10s at boot: factory reset.
+ */
 #include <string.h>
 #include "app_button.h"
 #include "app_led.h"
@@ -20,14 +24,36 @@
 static const char *TAG = "main";
 static sensor_cfg_t s_cfg;
 static bool s_run_net;
+static int s_identify_flashes;
+
+static void do_identify(void)
+{
+    s_identify_flashes = 6;
+    app_led_set(LED_BLINK_FAST);
+}
+
+static void identify_task(void *arg)
+{
+    (void)arg;
+    while (1) {
+        if (s_identify_flashes > 0) {
+            s_identify_flashes--;
+            if (s_identify_flashes == 0) app_led_set(s_run_net ? LED_ON : LED_BLINK_SLOW);
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
 
 static void start_network_path(void)
 {
     ble_peripheral_stop();
     app_led_set(LED_BLINK_SLOW);
     thread_net_start(&s_cfg);
-    esp_netif_init();
-    esp_event_loop_create_default();
+    /* Wait for Thread IP path a bit before MQTT (NAT64) */
+    for (int i = 0; i < 40 && !thread_net_is_attached(); i++) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    mqtt_sensor_set_identify_cb(do_identify);
     mqtt_sensor_start(&s_cfg);
     app_led_set(LED_ON);
     s_run_net = true;
@@ -35,7 +61,7 @@ static void start_network_path(void)
 
 static void on_provisioned(const sensor_cfg_t *cfg)
 {
-    ESP_LOGI(TAG, "provisioned as %s (%s)", cfg->device_id, cfg->name);
+    ESP_LOGI(TAG, "provisioned %s (%s)", cfg->device_id, cfg->name);
     s_cfg = *cfg;
     start_network_path();
 }
@@ -47,13 +73,33 @@ static void on_pair_hold(void)
     ble_peripheral_start_pairing(on_provisioned);
 }
 
+static void on_click(void)
+{
+    do_identify();
+    /* Hub LED via MQTT if connected: publish to hub cmd is optional;
+       hub identifies when it sees identify on device set/cmd or we publish event.
+       Device blinks locally; hub blinks when dashboard/sensor sends identify.
+       Also publish a lightweight event on state topic burst. */
+    if (s_run_net && mqtt_sensor_is_connected()) {
+        mqtt_sensor_publish_identify();
+        float t = 0, h = 0;
+        sht_sensor_read(&t, &h);
+        mqtt_sensor_publish_state(t, h, 100, -50);
+    }
+}
+
 static void telemetry_task(void *arg)
 {
+    (void)arg;
     while (1) {
-        if (s_run_net && mqtt_sensor_is_connected()) {
+        if (s_run_net) {
             float t = 0, h = 0;
-            sht_sensor_read(&t, &h);
-            mqtt_sensor_publish_state(t, h, 100, -50);
+            bool ok = sht_sensor_read(&t, &h);
+            if (mqtt_sensor_is_connected()) {
+                mqtt_sensor_publish_state(t, h, 100, -50);
+                ESP_LOGI(TAG, "pub T=%.2f H=%.1f (%s) thread=%s", t, h, ok ? "sht30" : "demo",
+                         thread_net_status());
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(SENSOR_PUBLISH_MS));
     }
@@ -67,10 +113,15 @@ void app_main(void)
         nvs_flash_erase();
         nvs_flash_init();
     }
+
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    ESP_ERROR_CHECK(esp_netif_init());
+
     sensor_nvs_init();
     app_led_init();
-    app_button_init(on_pair_hold);
+    app_button_init(on_pair_hold, on_click);
     sht_sensor_init();
+    xTaskCreate(identify_task, "id", 2048, NULL, 3, NULL);
 
     if (app_button_is_pressed()) {
         for (int i = 0; i < 500 && app_button_is_pressed(); i++) {
@@ -84,10 +135,10 @@ void app_main(void)
     }
 
     if (sensor_nvs_load(&s_cfg)) {
-        ESP_LOGI(TAG, "paired: %s", s_cfg.device_id);
+        ESP_LOGI(TAG, "paired %s", s_cfg.device_id);
         start_network_path();
     } else {
-        ESP_LOGI(TAG, "unpaired — hold btn %d ms", HUB_PAIR_BTN_HOLD_MS);
+        ESP_LOGI(TAG, "unpaired — hold button %d ms to pair", HUB_PAIR_BTN_HOLD_MS);
         app_led_set(LED_BLINK_SLOW);
     }
     xTaskCreate(telemetry_task, "tele", 4096, NULL, 4, NULL);

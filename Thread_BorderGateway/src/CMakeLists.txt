@@ -4,6 +4,7 @@ idf_component_register(
         "wifi_net.c"
         "hub_settings.c"
         "hub_button.c"
+        "hub_led.c"
         "dns_server.c"
         "captive_portal_html.c"
         "device_registry.c"
@@ -29,5 +30,10 @@ idf_component_register(
         esp_timer
         driver
         esp_driver_gpio
+        esp_driver_uart
         lwip
+        openthread
+        mbedtls
+        vfs
+        mdns
 )
