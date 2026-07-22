@@ -26,10 +26,10 @@
         },                                                 \
     }
 
-#define ESP_OPENTHREAD_DEFAULT_HOST_CONFIG()                        \
-    {                                                               \
-        .host_connection_mode = HOST_CONNECTION_MODE_CLI_USB,       \
-        .host_usb_config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT(), \
+/* Match official esp-thread-br: no CLI host port; RCP is UART only */
+#define ESP_OPENTHREAD_DEFAULT_HOST_CONFIG()               \
+    {                                                      \
+        .host_connection_mode = HOST_CONNECTION_MODE_NONE, \
     }
 
 #define ESP_OPENTHREAD_DEFAULT_PORT_CONFIG() \

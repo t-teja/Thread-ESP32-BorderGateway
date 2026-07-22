@@ -21,6 +21,8 @@
 #include "esp_ot_config.h"
 #include "esp_vfs_eventfd.h"
 #include "driver/uart.h"
+#include "driver/gpio.h"
+#include "freertos/task.h"
 
 #if CONFIG_EXTERNAL_COEX_ENABLE
 #include "esp_coexist.h"
@@ -32,7 +34,38 @@
 
 #define TAG "ot_esp_rcp"
 
+/* Plain GPIO status LED on the RCP (ESP32-H2) board — brief flash every 2s
+ * while the RCP app is alive/running. Matches known-good wiring from prior
+ * hardware bring-up (normal LED on GPIO22, not addressable). */
+#define RCP_LED_GPIO 22
+/* Board's LED is active-low (sinks to light) — verified on hardware. */
+#define RCP_LED_ON  0
+#define RCP_LED_OFF 1
+#define RCP_LED_HEARTBEAT_ON_MS   100
+#define RCP_LED_HEARTBEAT_OFF_MS  1900
+
 extern void otAppNcpInit(otInstance *instance);
+
+static void rcp_led_task(void *arg)
+{
+    (void)arg;
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = (1ULL << RCP_LED_GPIO),
+        .pull_down_en = 0,
+        .pull_up_en = 0,
+    };
+    gpio_config(&io_conf);
+    gpio_set_level(RCP_LED_GPIO, RCP_LED_OFF);
+
+    while (1) {
+        gpio_set_level(RCP_LED_GPIO, RCP_LED_ON);
+        vTaskDelay(pdMS_TO_TICKS(RCP_LED_HEARTBEAT_ON_MS));
+        gpio_set_level(RCP_LED_GPIO, RCP_LED_OFF);
+        vTaskDelay(pdMS_TO_TICKS(RCP_LED_HEARTBEAT_OFF_MS));
+    }
+}
 
 #if CONFIG_EXTERNAL_COEX_ENABLE
 #if SOC_EXTERNAL_COEX_ADVANCE
@@ -83,5 +116,6 @@ void app_main(void)
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(esp_vfs_eventfd_register(&eventfd_config));
+    xTaskCreate(rcp_led_task, "rcp_led", 1536, NULL, 1, NULL);
     xTaskCreate(ot_task_worker, "ot_rcp_main", 3072, xTaskGetCurrentTaskHandle(), 5, NULL);
 }

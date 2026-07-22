@@ -84,8 +84,17 @@ Private / project use unless otherwise stated.
 
 ## Gateway flash (S3 only)
 
-You only flash the ESP32-S3. The hub embeds RCP firmware and auto-programs the onboard H2 on first boot (or when the RCP image is updated).
+You only flash the ESP32-S3. The hub embeds RCP firmware in a SPIFFS partition and auto-programs the onboard/attached H2 over UART (RESET/BOOT GPIOs) on first boot, or whenever the packaged RCP image changes.
 
-Developer PC (only when RCP code changes): build Thread_RCP, then run python Thread_BorderGateway/tools/prepare_rcp_image.py, then flash Thread_BorderGateway to the S3.
+Developer PC workflow (whenever Thread_RCP source changes):
+
+1. Build Thread_RCP: `pio run -e esp32h2` (in `Thread_RCP/`)
+2. Repackage the RCP image for the hub: `python Thread_BorderGateway/tools/prepare_rcp_image.py`
+3. Bump `HUB_RCP_PKG_VER` in `Thread_BorderGateway/src/rcp_auto.c` — this forces a one-time reflash of the H2 on next hub boot even if a device was already provisioned (NVS `pkg_ver` mismatch triggers `do_force_update()`).
+4. Build + flash Thread_BorderGateway to the S3: `pio run -e esp32s3 -t upload`
+
+Expected boot log on a forced update: `RCP auto-update start` -> `RCP_UPDATE: Progress: 0..100 %` -> `Finished programming` / `Flash verified` -> `RCP update OK — mark verified and reboot` -> hub reboots -> OTBR comes up (`OpenThread attached to netif`, then `leader`/`router`).
+
+Hub status LED (ESP32-S3, GPIO48) blinks 3x slow on a successful RCP flash, 8x fast if the flash failed. RCP board LED (ESP32-H2, GPIO22, active-low) pulses briefly every ~2s as a heartbeat while the RCP firmware is running.
 
 See docs/FLASHING.md.

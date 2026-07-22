@@ -14,6 +14,7 @@
 #include "esp_netif.h"
 #include "esp_netif_types.h"
 #include "esp_openthread.h"
+#include "esp_openthread_spinel.h"
 #include "esp_openthread_border_router.h"
 #include "esp_openthread_lock.h"
 #include "esp_openthread_netif_glue.h"
@@ -35,11 +36,17 @@
 #include "wifi_net.h"
 #include "rcp_auto.h"
 
-#if __has_include("esp_ot_rcp_update.h")
-#include "esp_ot_rcp_update.h"
-#endif
-
 static const char *TAG = "otbr";
+
+#include "esp_openthread_types.h"
+
+/* OpenThread asserts if reset-failure callback is NULL. Provide soft handler. */
+static void otbr_coprocessor_reset_failure(void)
+{
+    ESP_LOGE(TAG, "Spinel: co-processor reset failed - check H2 RCP firmware/UART");
+    /* Do not reflash in a loop. Avoid assert by providing this callback. */
+}
+
 static bool s_ready;
 static bool s_started;
 static esp_netif_t *s_ot_netif;
@@ -115,10 +122,31 @@ static void ot_task(void *arg)
     s_ot_netif = esp_netif_new(&cfg);
     assert(s_ot_netif);
 
-    ESP_ERROR_CHECK(esp_openthread_init(&config));
+    /* H2 must be in app mode before Spinel opens UART1 */
+    rcp_auto_hw_reset_run();
+    vTaskDelay(pdMS_TO_TICKS(500));
+    ESP_LOGI(TAG, "starting OpenThread host @ baud %d RX=%d TX=%d",
+             HUB_RCP_UART_BAUD, HUB_RCP_UART_RX_GPIO, HUB_RCP_UART_TX_GPIO);
+    esp_openthread_set_coprocessor_reset_failure_callback(otbr_coprocessor_reset_failure);
+
+    esp_err_t oterr = esp_openthread_init(&config);
+    if (oterr != ESP_OK) {
+        ESP_LOGE(TAG, "esp_openthread_init failed: %s — leaving OTBR down (no reboot loop)",
+                 esp_err_to_name(oterr));
+        esp_netif_destroy(s_ot_netif);
+        s_ot_netif = NULL;
+        s_started = false;
+        vTaskDelete(NULL);
+        return;
+    }
     ESP_ERROR_CHECK(esp_netif_attach(s_ot_netif, esp_openthread_netif_glue_init(&config)));
 
-    /* Backbone = Wi-Fi STA netif (must already be connected) */
+    /* Backbone = Wi-Fi STA netif (must already be connected).
+     * All OpenThread/BR API calls below must run under the OT lock — the
+     * border router init (SRP server / advertising proxy / NAT64 setup)
+     * touches OT state and asserts if called unlocked (matches upstream
+     * esp_ot_br.c example). */
+    esp_openthread_lock_acquire(portMAX_DELAY);
     esp_netif_t *backbone = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (backbone) {
         esp_openthread_set_backbone_netif(backbone);
@@ -131,16 +159,8 @@ static void ot_task(void *arg)
     } else {
         ESP_LOGW(TAG, "no WIFI_STA_DEF — BR without backbone");
     }
-
-    esp_openthread_lock_acquire(portMAX_DELAY);
     start_thread();
     esp_openthread_lock_release();
-#if __has_include("esp_ot_rcp_update.h")
-    /* Reconcile RCP version with packaged image (may reboot if update) */
-    esp_ot_update_rcp_if_different();
-#endif
-
-
     s_started = true;
     esp_openthread_launch_mainloop();
 
@@ -165,7 +185,7 @@ esp_err_t otbr_net_init(void)
     xTaskCreate(ot_task, "otbr", 10240, NULL, 5, NULL);
 
     /* Wait briefly for stack / RCP */
-    if (xSemaphoreTake(s_ready_sem, pdMS_TO_TICKS(15000)) != pdTRUE) {
+    if (xSemaphoreTake(s_ready_sem, pdMS_TO_TICKS(30000)) != pdTRUE) {
         ESP_LOGE(TAG, "OTBR start timeout — is RCP flashed and UART %d RX=%d TX=%d connected?",
                  HUB_RCP_UART_PORT, HUB_RCP_UART_RX_GPIO, HUB_RCP_UART_TX_GPIO);
         /* keep trying; s_ready may become true later if RCP comes up */

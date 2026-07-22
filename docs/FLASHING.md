@@ -6,9 +6,10 @@ The hub packages RCP firmware into a SPIFFS partition (rcp_fw). On first boot th
 
 ### When RCP source changes (developer PC only)
 
-1. Build Thread_RCP (esp32h2)
+1. Build Thread_RCP (esp32h2): `pio run -e esp32h2`
 2. Run: python Thread_BorderGateway/tools/prepare_rcp_image.py
-3. Flash hub to S3
+3. Bump `HUB_RCP_PKG_VER` in `Thread_BorderGateway/src/rcp_auto.c` so the hub force-reflashes the H2 (NVS `pkg_ver` mismatch)
+4. Flash hub to S3: `pio run -e esp32s3 -t upload`
 
 ### Flash the hub
 
@@ -46,3 +47,8 @@ Hold BOOT 5s while running, or 8s at power-on, or Settings page.
 2. After reboot look for early logs: rcp_auto: RCP auto-update start.
 3. If you see SPIFFS mount failed or used=0, the RCP partition was empty — rebuild hub and upload again.
 4. Expected SPIFFS path inside partition: /rcp_fw/rcp_0/rcp_image.
+
+## LED indicators
+
+- Hub status LED (ESP32-S3, GPIO48): 3 slow blinks = RCP flashed OK, 8 fast blinks = RCP flash failed (during a forced update only — skipped when the RCP image already matches).
+- RCP board LED (ESP32-H2, GPIO22, active-low): brief ~100ms pulse every ~2s while the RCP firmware is alive/running. This is a plain heartbeat only — the RCP has no visibility into hub-side pairing state (see docs/ARCHITECTURE.md).

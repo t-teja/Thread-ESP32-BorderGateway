@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "driver/gpio.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
@@ -18,6 +19,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hub_config.h"
+#include "hub_led.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -32,7 +34,30 @@
 static const char *TAG = "rcp_auto";
 
 /* Bump when tools/rcp_fw.bin packaging changes */
-#define HUB_RCP_PKG_VER 2
+#define HUB_RCP_PKG_VER 6
+
+void rcp_auto_hw_reset_run(void)
+{
+    /* Drive BOOT high (normal run, not download mode) and pulse RESET so the
+     * onboard H2 restarts running its application (RCP) firmware. Needed on
+     * every boot because these GPIOs are not guaranteed driven at S3 POR. */
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << HUB_RCP_BOOT_GPIO) | (1ULL << HUB_RCP_RESET_GPIO),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
+
+    gpio_set_level(HUB_RCP_BOOT_GPIO, 1);
+    gpio_set_level(HUB_RCP_RESET_GPIO, 0);
+    vTaskDelay(pdMS_TO_TICKS(150));
+    gpio_set_level(HUB_RCP_RESET_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    ESP_LOGI(TAG, "H2 RCP reset pulsed (BOOT=GPIO%d high, RESET=GPIO%d)",
+             HUB_RCP_BOOT_GPIO, HUB_RCP_RESET_GPIO);
+}
 
 #if HUB_RCP_AUTO_UPDATE
 /* Matches ESP_RCP_UPDATE_DEFAULT_CONFIG() firmware_dir with path name "rcp" */
@@ -87,9 +112,13 @@ static void do_force_update(void)
             nvs_commit(nvs);
             nvs_close(nvs);
         }
+        /* 3 slow blinks = RCP flashed OK */
+        hub_led_blink_sync(3, 300, 200);
     } else {
         ESP_LOGE(TAG, "RCP update failed: %s", esp_err_to_name(err));
         esp_rcp_mark_image_verified(false);
+        /* 8 fast blinks = RCP flash FAILED */
+        hub_led_blink_sync(8, 100, 80);
     }
     vTaskDelay(pdMS_TO_TICKS(300));
     esp_restart();
