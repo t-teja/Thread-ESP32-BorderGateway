@@ -43,6 +43,19 @@ esp_err_t sht_sensor_init(void)
         ESP_LOGI(TAG, "SHT30 present at 0x%02x SDA=%d SCL=%d", SHT30_I2C_ADDR,
                  BOARD_I2C_SDA_GPIO, BOARD_I2C_SCL_GPIO);
     } else {
+        ESP_LOGW(TAG, "No SHT30 at 0x%02x (SDA=%d SCL=%d) — scanning bus for any device...",
+                 SHT30_I2C_ADDR, BOARD_I2C_SDA_GPIO, BOARD_I2C_SCL_GPIO);
+        int found = 0;
+        for (uint16_t addr = 0x08; addr <= 0x77; addr++) {
+            if (i2c_master_probe(s_bus, addr, 50) == ESP_OK) {
+                ESP_LOGW(TAG, "  found device ACK at 0x%02x", addr);
+                found++;
+            }
+        }
+        if (!found) {
+            ESP_LOGW(TAG, "  no I2C device responded at all — check wiring/power, "
+                     "not just the address (SDA/SCL swapped? sensor unpowered?)");
+        }
         ESP_LOGW(TAG, "No SHT30 — demo T/H");
     }
     return ESP_OK;

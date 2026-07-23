@@ -39,10 +39,11 @@ extern "C" {
 #define HUB_MAX_ROOM          32
 #define HUB_MAX_TYPE          16
 #define HUB_MAX_FW            16
-#define HUB_MAX_MQTT_HOST     64
-#define HUB_MAX_TOPIC_BASE    16
 #define HUB_MAX_DATASET_B64   512
 #define HUB_REGISTRY_MAX      32
+/** Text IPv6 address (hub mesh-local EID given to sensors, or a sensor's
+ *  reporting address remembered by the hub) — OT_IP6_ADDRESS_STRING_SIZE is 40. */
+#define HUB_MAX_ADDR          40
 
 #ifdef __cplusplus
 }

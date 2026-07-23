@@ -12,6 +12,7 @@ idf_component_register(
         "ble_central.c"
         "web_server.c"
         "mqtt_bridge.c"
+        "coap_bridge.c"
         "otbr_net.c"
         "util_slug.c"
         "rcp_auto.c"

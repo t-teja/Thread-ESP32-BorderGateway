@@ -9,11 +9,8 @@ typedef struct {
     char name[HUB_MAX_NAME];
     char room[HUB_MAX_ROOM];
     char type[HUB_MAX_TYPE];
-    char mqtt_host[HUB_MAX_MQTT_HOST];
-    int mqtt_port;
-    char mqtt_user[32];
-    char mqtt_pass[32];
-    char topic_base[HUB_MAX_TOPIC_BASE];
+    /** Hub's Thread mesh-local address — sensor reports here via CoAP. */
+    char hub_addr[HUB_MAX_ADDR];
     char dataset_b64[HUB_MAX_DATASET_B64];
 } sensor_cfg_t;
 

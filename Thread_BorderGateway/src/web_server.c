@@ -5,6 +5,7 @@
 #include "ble_central.h"
 #include "cJSON.h"
 #include "captive_portal.h"
+#include "coap_bridge.h"
 #include "device_registry.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -232,11 +233,10 @@ static esp_err_t h_identify(httpd_req_t *req)
     if (req->content_len > 0) read_body(req, body, sizeof(body));
     cJSON *j = cJSON_Parse(body[0] ? body : "{}");
     const char *id = j ? cJSON_GetStringValue(cJSON_GetObjectItem(j, "id")) : NULL;
-    const char *room = j ? cJSON_GetStringValue(cJSON_GetObjectItem(j, "room")) : NULL;
     /* Always blink hub LED */
     hub_led_identify(5);
     if (id && id[0]) {
-        mqtt_bridge_publish_device_cmd(room ? room : "", id, "{\"cmd\":\"identify\"}");
+        coap_bridge_send_cmd(id, "{\"cmd\":\"identify\"}");
     }
     if (j) cJSON_Delete(j);
     return send_json(req, "{\"ok\":true}", 200);

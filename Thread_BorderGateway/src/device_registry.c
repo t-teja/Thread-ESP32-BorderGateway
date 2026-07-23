@@ -120,6 +120,28 @@ void registry_touch(const char *id, int64_t ts)
     }
 }
 
+void registry_set_addr(const char *id, const char *ot_addr)
+{
+    if (!id || !ot_addr) return;
+    for (int i = 0; i < HUB_REGISTRY_MAX; i++) {
+        if (s_devs[i].in_use && strcmp(s_devs[i].id, id) == 0) {
+            strncpy(s_devs[i].ot_addr, ot_addr, sizeof(s_devs[i].ot_addr) - 1);
+            return;
+        }
+    }
+}
+
+void registry_set_fw(const char *id, const char *fw)
+{
+    if (!id || !fw) return;
+    for (int i = 0; i < HUB_REGISTRY_MAX; i++) {
+        if (s_devs[i].in_use && strcmp(s_devs[i].id, id) == 0) {
+            strncpy(s_devs[i].fw, fw, sizeof(s_devs[i].fw) - 1);
+            return;
+        }
+    }
+}
+
 void registry_update_telemetry(const char *id, float t, float h, int bat, int rssi, const char *contact)
 {
     for (int i = 0; i < HUB_REGISTRY_MAX; i++) {

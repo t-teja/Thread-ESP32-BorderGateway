@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "coap_bridge.h"
 #include "device_registry.h"
 #include "esp_log.h"
 #include "hub_config.h"
@@ -24,8 +25,7 @@ static char s_info_topic[96];
 static char s_reg_topic[96];
 static char s_evt_topic[96];
 static char s_uri[160];
-static char s_sub_state[32];
-static char s_sub_status[32];
+static char s_sub_set[32];
 static char s_sub_cmd_hub[96];
 
 static void make_topics(void)
@@ -37,54 +37,30 @@ static void make_topics(void)
     snprintf(s_info_topic, sizeof(s_info_topic), "%s/hub/%s/info", base, s_hub_id);
     snprintf(s_reg_topic, sizeof(s_reg_topic), "%s/hub/%s/registry", base, s_hub_id);
     snprintf(s_evt_topic, sizeof(s_evt_topic), "%s/hub/%s/event", base, s_hub_id);
-    snprintf(s_sub_state, sizeof(s_sub_state), "%s/+/+/state", base);
-    snprintf(s_sub_status, sizeof(s_sub_status), "%s/+/+/status", base);
+    /* Devices no longer connect to MQTT directly; this lets external MQTT
+     * clients (e.g. Node-RED automations) still command a device — the hub
+     * relays it over CoAP (see coap_bridge_send_cmd). */
+    snprintf(s_sub_set, sizeof(s_sub_set), "%s/+/+/set/#", base);
     snprintf(s_sub_cmd_hub, sizeof(s_sub_cmd_hub), "%s/hub/%s/cmd", base, s_hub_id);
 }
 
-static void handle_state_msg(const char *topic, const char *data, int len)
+static void handle_set_msg(const char *topic, const char *data, int len)
 {
-    /* home/room/id/state */
+    /* home/room/id/set/... */
     char tcopy[128];
     snprintf(tcopy, sizeof(tcopy), "%.*s", (int)sizeof(tcopy) - 1, topic);
     char *save = NULL;
-    char *tok = strtok_r(tcopy, "/", &save); /* base */
-    tok = strtok_r(NULL, "/", &save);        /* room */
+    strtok_r(tcopy, "/", &save); /* base */
+    strtok_r(NULL, "/", &save); /* room */
     char *id = strtok_r(NULL, "/", &save);
     char *leaf = strtok_r(NULL, "/", &save);
-    if (!id || !leaf || strcmp(leaf, "state") != 0) return;
+    if (!id || !leaf || strcmp(leaf, "set") != 0) return;
 
-    char payload[256];
+    char payload[192];
     int n = len < (int)sizeof(payload) - 1 ? len : (int)sizeof(payload) - 1;
     memcpy(payload, data, n);
     payload[n] = 0;
-    cJSON *j = cJSON_Parse(payload);
-    if (!j) return;
-    float t = 0, h = 0;
-    int bat = -1, rssi = 0;
-    const char *contact = NULL;
-    const cJSON *x;
-    x = cJSON_GetObjectItem(j, "t"); if (cJSON_IsNumber(x)) t = (float)x->valuedouble;
-    x = cJSON_GetObjectItem(j, "h"); if (cJSON_IsNumber(x)) h = (float)x->valuedouble;
-    x = cJSON_GetObjectItem(j, "bat"); if (cJSON_IsNumber(x)) bat = x->valueint;
-    x = cJSON_GetObjectItem(j, "rssi"); if (cJSON_IsNumber(x)) rssi = x->valueint;
-    x = cJSON_GetObjectItem(j, "contact"); if (cJSON_IsString(x)) contact = x->valuestring;
-    registry_update_telemetry(id, t, h, bat, rssi, contact);
-    cJSON_Delete(j);
-}
-
-static void handle_status_msg(const char *topic, const char *data, int len)
-{
-    char tcopy[128];
-    snprintf(tcopy, sizeof(tcopy), "%.*s", (int)sizeof(tcopy) - 1, topic);
-    char *save = NULL;
-    strtok_r(tcopy, "/", &save);
-    strtok_r(NULL, "/", &save);
-    char *id = strtok_r(NULL, "/", &save);
-    char *leaf = strtok_r(NULL, "/", &save);
-    if (!id || !leaf || strcmp(leaf, "status") != 0) return;
-    bool online = (len >= 6 && strncmp(data, "online", 6) == 0);
-    registry_set_online(id, online);
+    coap_bridge_send_cmd(id, payload);
 }
 
 static void handle_hub_cmd(const char *data, int len)
@@ -111,8 +87,7 @@ static void on_mqtt(void *args, esp_event_base_t base, int32_t id, void *data)
         s_connected = true;
         ESP_LOGI(TAG, "connected %s", s_uri);
         esp_mqtt_client_publish(s_client, s_status_topic, "online", 0, 1, 1);
-        esp_mqtt_client_subscribe(s_client, s_sub_state, 0);
-        esp_mqtt_client_subscribe(s_client, s_sub_status, 0);
+        esp_mqtt_client_subscribe(s_client, s_sub_set, 0);
         esp_mqtt_client_subscribe(s_client, s_sub_cmd_hub, 0);
         { const hub_settings_t *c = hub_settings_get();
           const char *base = c->topic_base[0] ? c->topic_base : HUB_DEFAULT_TOPIC_BASE;
@@ -130,9 +105,7 @@ static void on_mqtt(void *args, esp_event_base_t base, int32_t id, void *data)
         int tl = e->topic_len < (int)sizeof(topic) - 1 ? e->topic_len : (int)sizeof(topic) - 1;
         memcpy(topic, e->topic, tl);
         topic[tl] = 0;
-        if (strstr(topic, "/state")) handle_state_msg(topic, e->data, e->data_len);
-        else if (strstr(topic, "/status") && !strstr(topic, "/hub/"))
-            handle_status_msg(topic, e->data, e->data_len);
+        if (strstr(topic, "/set/")) handle_set_msg(topic, e->data, e->data_len);
         else if (strstr(topic, "/cmd")) handle_hub_cmd(e->data, e->data_len);
         else if (strstr(topic, "broadcast/identify")) hub_led_identify(5);
         break;
@@ -201,14 +174,36 @@ void mqtt_bridge_publish_event(const char *json_object)
     esp_mqtt_client_publish(s_client, s_evt_topic, json_object, 0, 0, 0);
 }
 
-void mqtt_bridge_publish_device_cmd(const char *room, const char *device_id, const char *cmd_json)
+static void device_topic(char *out, size_t outlen, const char *room, const char *device_id,
+                          const char *leaf)
 {
-    if (!s_client || !s_connected || !device_id || !cmd_json) return;
     const hub_settings_t *c = hub_settings_get();
     const char *base = c->topic_base[0] ? c->topic_base : HUB_DEFAULT_TOPIC_BASE;
     char room_slug[40];
     hub_slugify(room ? room : "", room_slug, sizeof(room_slug));
+    snprintf(out, outlen, "%s/%s/%s/%s", base, room_slug, device_id, leaf);
+}
+
+void mqtt_bridge_publish_device_state(const char *room, const char *device_id, const char *json_object)
+{
+    if (!s_client || !s_connected || !device_id || !json_object) return;
     char topic[128];
-    snprintf(topic, sizeof(topic), "%s/%s/%s/set/cmd", base, room_slug, device_id);
-    esp_mqtt_client_publish(s_client, topic, cmd_json, 0, 0, 0);
+    device_topic(topic, sizeof(topic), room, device_id, "state");
+    esp_mqtt_client_publish(s_client, topic, json_object, 0, 1, 1);
+}
+
+void mqtt_bridge_publish_device_meta(const char *room, const char *device_id, const char *json_object)
+{
+    if (!s_client || !s_connected || !device_id || !json_object) return;
+    char topic[128];
+    device_topic(topic, sizeof(topic), room, device_id, "meta");
+    esp_mqtt_client_publish(s_client, topic, json_object, 0, 1, 1);
+}
+
+void mqtt_bridge_publish_device_status(const char *room, const char *device_id, bool online)
+{
+    if (!s_client || !s_connected || !device_id) return;
+    char topic[128];
+    device_topic(topic, sizeof(topic), room, device_id, "status");
+    esp_mqtt_client_publish(s_client, topic, online ? "online" : "offline", 0, 1, 1);
 }

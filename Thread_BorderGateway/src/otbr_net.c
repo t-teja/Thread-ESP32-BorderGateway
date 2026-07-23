@@ -214,6 +214,16 @@ bool otbr_net_get_dataset_b64(char *buf, size_t buflen)
     return true;
 }
 
+bool otbr_net_get_mesh_local_addr(char *buf, size_t buflen)
+{
+    if (!buf || buflen < 8 || !s_ready || !esp_openthread_get_instance()) return false;
+    esp_openthread_lock_acquire(portMAX_DELAY);
+    const otIp6Address *addr = otThreadGetMeshLocalEid(esp_openthread_get_instance());
+    if (addr) otIp6AddressToString(addr, buf, (uint16_t)buflen);
+    esp_openthread_lock_release();
+    return addr != NULL;
+}
+
 const char *otbr_net_status_text(void)
 {
     if (!s_ready) return "starting";

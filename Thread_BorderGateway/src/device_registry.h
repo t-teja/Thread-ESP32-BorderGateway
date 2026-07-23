@@ -14,6 +14,8 @@ typedef struct {
     int64_t last_seen;
     bool online;
     bool in_use;
+    /* Thread (CoAP) address the device last reported from, for sending commands */
+    char ot_addr[HUB_MAX_ADDR];
     /* live telemetry for dashboard / map */
     float t;
     float h;
@@ -33,6 +35,10 @@ bool registry_remove(const char *id);
 bool registry_set_online(const char *id, bool online);
 void registry_touch(const char *id, int64_t ts);
 void registry_update_telemetry(const char *id, float t, float h, int bat, int rssi, const char *contact);
+/** Remember the Thread (CoAP) source address a device last reported from. */
+void registry_set_addr(const char *id, const char *ot_addr);
+/** Update device firmware version string (from device meta report). */
+void registry_set_fw(const char *id, const char *fw);
 char *registry_to_json(void);
 /** Graph JSON for mermaid/network map. Caller frees. */
 char *registry_map_json(const char *hub_id, const char *thread_role);

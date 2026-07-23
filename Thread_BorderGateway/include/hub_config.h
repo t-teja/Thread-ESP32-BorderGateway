@@ -38,3 +38,13 @@
 
 #define HUB_OTBR_ENABLED         1
 #define HUB_RCP_AUTO_UPDATE      1
+
+/*
+ * Sensor <-> hub transport is CoAP over Thread (device pushes state/meta/event,
+ * hub pushes commands back). MQTT is spoken only between the hub and the
+ * broker — see coap_bridge.c / mqtt_bridge.c.
+ */
+#define HUB_COAP_PORT               5683 /* OT_DEFAULT_COAP_PORT */
+/* Mark a device offline if no CoAP report seen for this long. Must exceed the
+ * slowest sensor heartbeat (Thread_Contact idles at 300 s) with margin. */
+#define HUB_DEVICE_OFFLINE_TIMEOUT_SEC 600

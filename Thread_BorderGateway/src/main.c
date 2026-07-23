@@ -3,6 +3,7 @@
  */
 #include <stdio.h>
 #include "ble_central.h"
+#include "coap_bridge.h"
 #include "device_registry.h"
 #include "dns_server.h"
 #include "esp_log.h"
@@ -66,6 +67,9 @@ void app_main(void)
         mdns_init();
         mdns_hostname_set("thread-hub");
         otbr_net_init();
+        if (coap_bridge_init() != ESP_OK) {
+            ESP_LOGW(TAG, "CoAP bridge not ready yet — sensors may not report until Thread is up");
+        }
         ble_central_init();
         if (hub_settings_has_mqtt()) {
             const hub_settings_t *s = hub_settings_get();
@@ -82,6 +86,7 @@ void app_main(void)
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));
+        coap_bridge_check_timeouts();
         if (mqtt_bridge_is_connected()) {
             mqtt_bridge_publish_info();
         }

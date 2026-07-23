@@ -6,5 +6,9 @@ bool mqtt_bridge_is_connected(void);
 void mqtt_bridge_publish_registry(void);
 void mqtt_bridge_publish_info(void);
 void mqtt_bridge_publish_event(const char *json_object);
-/** Publish identify command to device topic. */
-void mqtt_bridge_publish_device_cmd(const char *room, const char *device_id, const char *cmd_json);
+/** Publish a device's telemetry (retained) — payload forwarded as received over CoAP. */
+void mqtt_bridge_publish_device_state(const char *room, const char *device_id, const char *json_object);
+/** Publish a device's identity/meta (retained). */
+void mqtt_bridge_publish_device_meta(const char *room, const char *device_id, const char *json_object);
+/** Publish a device's online/offline status (retained, LWT-equivalent). */
+void mqtt_bridge_publish_device_status(const char *room, const char *device_id, bool online);

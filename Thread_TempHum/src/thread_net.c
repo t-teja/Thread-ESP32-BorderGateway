@@ -23,6 +23,27 @@ static bool s_started;
 static char s_status[32] = "down";
 static esp_netif_t *s_ot_netif;
 
+/*
+ * Role changes only get processed once esp_openthread_launch_mainloop() is
+ * pumping the stack (radio + timer events), so track attach via this
+ * callback instead of polling otThreadGetDeviceRole() before the mainloop
+ * has started (that loop would spin for its whole timeout without ever
+ * seeing a role change).
+ */
+static void on_state_changed(otChangedFlags flags, void *ctx)
+{
+    (void)ctx;
+    if (!(flags & OT_CHANGED_THREAD_ROLE)) return;
+    otInstance *inst = esp_openthread_get_instance();
+    if (!inst) return;
+    otDeviceRole role = otThreadGetDeviceRole(inst);
+    bool attached = (role == OT_DEVICE_ROLE_CHILD || role == OT_DEVICE_ROLE_ROUTER ||
+                      role == OT_DEVICE_ROLE_LEADER);
+    s_attached = attached;
+    strncpy(s_status, attached ? "attached" : "detached", sizeof(s_status) - 1);
+    ESP_LOGI(TAG, "Thread role changed -> %d (attached=%d)", (int)role, attached);
+}
+
 /* Radio native on H2 */
 static const esp_openthread_platform_config_t s_cfg = {
     .radio_config = { .radio_mode = RADIO_MODE_NATIVE },
@@ -63,6 +84,7 @@ static void ot_task(void *arg)
 
         esp_openthread_lock_acquire(portMAX_DELAY);
         otInstance *inst = esp_openthread_get_instance();
+        otSetStateChangedCallback(inst, on_state_changed, NULL);
         otError err = otDatasetSetActiveTlvs(inst, &ds);
         if (err != OT_ERROR_NONE) {
             ESP_LOGE(TAG, "otDatasetSetActiveTlvs %d", (int)err);
@@ -76,21 +98,8 @@ static void ot_task(void *arg)
         esp_openthread_lock_release();
     }
 
-    /* Mark attached when child/router/leader */
-    for (int i = 0; i < 60 && !s_attached; i++) {
-        vTaskDelay(pdMS_TO_TICKS(500));
-        if (!esp_openthread_get_instance()) continue;
-        esp_openthread_lock_acquire(portMAX_DELAY);
-        otDeviceRole role = otThreadGetDeviceRole(esp_openthread_get_instance());
-        esp_openthread_lock_release();
-        if (role == OT_DEVICE_ROLE_CHILD || role == OT_DEVICE_ROLE_ROUTER || role == OT_DEVICE_ROLE_LEADER) {
-            s_attached = true;
-            strncpy(s_status, "attached", sizeof(s_status) - 1);
-            ESP_LOGI(TAG, "Thread attached role=%d", (int)role);
-        }
-    }
-    if (!s_attached) ESP_LOGW(TAG, "Thread not attached yet (status=%s)", s_status);
-
+    /* Role changes (and thus s_attached) are now reported asynchronously by
+     * on_state_changed() once this call starts pumping the OT stack. */
     esp_openthread_launch_mainloop();
     esp_openthread_netif_glue_deinit();
     esp_netif_destroy(s_ot_netif);

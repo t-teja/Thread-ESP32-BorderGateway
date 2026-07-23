@@ -1,6 +1,11 @@
 # MQTT schema (v1)
 
-Broker: mini PC Mosquitto (LAN). Hub and sensors are publishers; Node-RED subscribes.
+Broker: mini PC Mosquitto (LAN). **The hub is the only MQTT client** — sensors
+never connect to the broker. Sensors talk Thread-only (CoAP) to the hub; the
+hub bridges their reports onto the topics below (see
+`Thread_BorderGateway/src/coap_bridge.c`) and relays `set/#` commands back to
+a device over CoAP. Node-RED subscribes to these same topics, so this schema
+is unaffected by that split.
 
 ## Hub
 
@@ -31,10 +36,10 @@ Pattern: `home/<room_slug>/<device_id>/<leaf>`
 
 | Leaf | Retain | Notes |
 |------|--------|-------|
-| `status` | yes | `online`/`offline` + LWT |
-| `meta` | yes | static-ish identity |
-| `state` | yes | latest reading |
-| `set/*` | no | commands (optional) |
+| `status` | yes | `online`/`offline`, published by the hub — no CoAP report for `HUB_DEVICE_OFFLINE_TIMEOUT_SEC` marks it offline (devices have no persistent session, so no per-device LWT) |
+| `meta` | yes | static-ish identity, forwarded from the device's CoAP `m` report |
+| `state` | yes | latest reading, forwarded from the device's CoAP `s` report |
+| `set/*` | no | commands; hub subscribes and relays the payload to the device over CoAP |
 
 `room_slug`: lowercase, spaces → `_`. Empty room → `unassigned`.
 

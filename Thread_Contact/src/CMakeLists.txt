@@ -6,7 +6,7 @@ idf_component_register(
         "sensor_nvs.c"
         "ble_peripheral.c"
         "thread_net.c"
-        "mqtt_sensor.c"
+        "coap_sensor.c"
         "contact_input.c"
     INCLUDE_DIRS
         "."
@@ -15,7 +15,6 @@ idf_component_register(
     REQUIRES
         nvs_flash
         bt
-        mqtt
         json
         esp_timer
         driver

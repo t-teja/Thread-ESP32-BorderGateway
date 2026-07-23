@@ -11,7 +11,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "hub_config.h"
-#include "hub_settings.h"
 #include "mqtt_bridge.h"
 #include "otbr_net.h"
 #include "util_slug.h"
@@ -131,6 +130,12 @@ esp_err_t pairing_pair_device(const char *ble_addr, const char *type_hint, const
         return ESP_ERR_INVALID_STATE;
     }
 
+    char hub_addr[HUB_MAX_ADDR];
+    if (!otbr_net_get_mesh_local_addr(hub_addr, sizeof(hub_addr))) {
+        ESP_LOGE(TAG, "no hub Thread address yet");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "cmd", "provision");
     cJSON_AddStringToObject(root, "dataset", dataset);
@@ -138,12 +143,8 @@ esp_err_t pairing_pair_device(const char *ble_addr, const char *type_hint, const
     cJSON_AddStringToObject(root, "name", name);
     cJSON_AddStringToObject(root, "room", room ? room : "");
     cJSON_AddStringToObject(root, "type", type);
-    const hub_settings_t *sc = hub_settings_get();
-    cJSON_AddStringToObject(root, "mqtt_host", sc->mqtt_host);
-    cJSON_AddNumberToObject(root, "mqtt_port", sc->mqtt_port ? sc->mqtt_port : 1883);
-    cJSON_AddStringToObject(root, "mqtt_user", sc->mqtt_user);
-    cJSON_AddStringToObject(root, "mqtt_pass", sc->mqtt_pass);
-    cJSON_AddStringToObject(root, "topic_base", sc->topic_base[0] ? sc->topic_base : HUB_DEFAULT_TOPIC_BASE);
+    /* Sensors talk Thread-only to the hub (CoAP); the hub is the sole MQTT client. */
+    cJSON_AddStringToObject(root, "hub_addr", hub_addr);
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (!json) {

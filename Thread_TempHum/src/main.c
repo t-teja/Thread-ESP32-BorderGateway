@@ -1,6 +1,6 @@
 /**
- * ESP32-H2 Temp/Humidity — BLE pair, OpenThread, SHT30, MQTT.
- * Hold BOOT 3s: pair mode. Click: identify (local blink + hub via MQTT).
+ * ESP32-H2 Temp/Humidity — BLE pair, OpenThread, SHT30, CoAP to hub.
+ * Hold BOOT 3s: pair mode. Click: identify (local blink + hub via CoAP).
  * Hold 10s at boot: factory reset.
  */
 #include <string.h>
@@ -8,6 +8,7 @@
 #include "app_led.h"
 #include "ble_peripheral.h"
 #include "board.h"
+#include "coap_sensor.h"
 #include "device_types.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -15,7 +16,6 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "mqtt_sensor.h"
 #include "nvs_flash.h"
 #include "sensor_nvs.h"
 #include "sht_sensor.h"
@@ -49,12 +49,12 @@ static void start_network_path(void)
     ble_peripheral_stop();
     app_led_set(LED_BLINK_SLOW);
     thread_net_start(&s_cfg);
-    /* Wait for Thread IP path a bit before MQTT (NAT64) */
+    /* Wait for Thread IP path a bit before talking CoAP to the hub */
     for (int i = 0; i < 40 && !thread_net_is_attached(); i++) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
-    mqtt_sensor_set_identify_cb(do_identify);
-    mqtt_sensor_start(&s_cfg);
+    coap_sensor_set_identify_cb(do_identify);
+    coap_sensor_start(&s_cfg);
     app_led_set(LED_ON);
     s_run_net = true;
 }
@@ -76,15 +76,12 @@ static void on_pair_hold(void)
 static void on_click(void)
 {
     do_identify();
-    /* Hub LED via MQTT if connected: publish to hub cmd is optional;
-       hub identifies when it sees identify on device set/cmd or we publish event.
-       Device blinks locally; hub blinks when dashboard/sensor sends identify.
-       Also publish a lightweight event on state topic burst. */
-    if (s_run_net && mqtt_sensor_is_connected()) {
-        mqtt_sensor_publish_identify();
+    /* Local blink always; also tell the hub over CoAP so its LED blinks too. */
+    if (s_run_net) {
+        coap_sensor_publish_identify();
         float t = 0, h = 0;
         sht_sensor_read(&t, &h);
-        mqtt_sensor_publish_state(t, h, 100, -50);
+        coap_sensor_publish_state(t, h, 100, -50);
     }
 }
 
@@ -95,11 +92,9 @@ static void telemetry_task(void *arg)
         if (s_run_net) {
             float t = 0, h = 0;
             bool ok = sht_sensor_read(&t, &h);
-            if (mqtt_sensor_is_connected()) {
-                mqtt_sensor_publish_state(t, h, 100, -50);
-                ESP_LOGI(TAG, "pub T=%.2f H=%.1f (%s) thread=%s", t, h, ok ? "sht30" : "demo",
-                         thread_net_status());
-            }
+            coap_sensor_publish_state(t, h, 100, -50);
+            ESP_LOGI(TAG, "pub T=%.2f H=%.1f (%s) thread=%s hub_ok=%d", t, h, ok ? "sht30" : "demo",
+                     thread_net_status(), coap_sensor_is_connected());
         }
         vTaskDelay(pdMS_TO_TICKS(SENSOR_PUBLISH_MS));
     }

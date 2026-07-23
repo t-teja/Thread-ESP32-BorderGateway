@@ -75,7 +75,6 @@ static void apply_provision_json(const char *json, uint16_t len)
     }
     sensor_cfg_t cfg = {0};
     cfg.provisioned = true;
-    cfg.mqtt_port = 1883;
     const cJSON *j;
     j = cJSON_GetObjectItem(root, "device_id");
     if (cJSON_IsString(j)) strncpy(cfg.device_id, j->valuestring, sizeof(cfg.device_id) - 1);
@@ -86,18 +85,10 @@ static void apply_provision_json(const char *json, uint16_t len)
     j = cJSON_GetObjectItem(root, "type");
     if (cJSON_IsString(j)) strncpy(cfg.type, j->valuestring, sizeof(cfg.type) - 1);
     else strncpy(cfg.type, SENSOR_TYPE_STR, sizeof(cfg.type) - 1);
-    j = cJSON_GetObjectItem(root, "mqtt_host");
-    if (cJSON_IsString(j)) strncpy(cfg.mqtt_host, j->valuestring, sizeof(cfg.mqtt_host) - 1);
-    j = cJSON_GetObjectItem(root, "mqtt_user");
-    if (cJSON_IsString(j)) strncpy(cfg.mqtt_user, j->valuestring, sizeof(cfg.mqtt_user) - 1);
-    j = cJSON_GetObjectItem(root, "mqtt_pass");
-    if (cJSON_IsString(j)) strncpy(cfg.mqtt_pass, j->valuestring, sizeof(cfg.mqtt_pass) - 1);
-    j = cJSON_GetObjectItem(root, "topic_base");
-    if (cJSON_IsString(j)) strncpy(cfg.topic_base, j->valuestring, sizeof(cfg.topic_base) - 1);
+    j = cJSON_GetObjectItem(root, "hub_addr");
+    if (cJSON_IsString(j)) strncpy(cfg.hub_addr, j->valuestring, sizeof(cfg.hub_addr) - 1);
     j = cJSON_GetObjectItem(root, "dataset");
     if (cJSON_IsString(j)) strncpy(cfg.dataset_b64, j->valuestring, sizeof(cfg.dataset_b64) - 1);
-    j = cJSON_GetObjectItem(root, "mqtt_port");
-    if (cJSON_IsNumber(j)) cfg.mqtt_port = j->valueint;
     cJSON_Delete(root);
 
     sensor_nvs_save(&cfg);

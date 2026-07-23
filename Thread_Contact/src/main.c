@@ -1,9 +1,10 @@
-/** ESP32-H2 contact sensor — BLE pair, MQTT on change + heartbeat. */
+/** ESP32-H2 contact sensor — BLE pair, CoAP to hub on change + heartbeat. */
 #include <string.h>
 #include "app_button.h"
 #include "app_led.h"
 #include "ble_peripheral.h"
 #include "board.h"
+#include "coap_sensor.h"
 #include "contact_input.h"
 #include "device_types.h"
 #include "esp_event.h"
@@ -12,7 +13,6 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "mqtt_sensor.h"
 #include "nvs_flash.h"
 #include "sensor_nvs.h"
 #include "thread_net.h"
@@ -27,7 +27,7 @@ static void start_network_path(void)
     thread_net_start(&s_cfg);
     esp_netif_init();
     esp_event_loop_create_default();
-    mqtt_sensor_start(&s_cfg);
+    coap_sensor_start(&s_cfg);
     app_led_set(LED_ON);
     s_run_net = true;
 }
@@ -48,15 +48,17 @@ static void contact_task(void *arg)
 {
     bool last_open = contact_input_is_open();
     int hb = 0;
-    if (s_run_net && mqtt_sensor_is_connected()) {
-        mqtt_sensor_publish_contact(contact_input_state_str(), 100, -50);
+    /* CoAP has no persistent "connected" session to gate on (unlike MQTT) —
+     * always report; coap_sensor_is_connected() only reflects the last ack. */
+    if (s_run_net) {
+        coap_sensor_publish_contact(contact_input_state_str(), 100, -50);
     }
     while (1) {
         bool open = contact_input_is_open();
-        if (s_run_net && mqtt_sensor_is_connected()) {
+        if (s_run_net) {
             if (open != last_open) {
                 last_open = open;
-                mqtt_sensor_publish_contact(contact_input_state_str(), 100, -50);
+                coap_sensor_publish_contact(contact_input_state_str(), 100, -50);
                 app_led_set(open ? LED_BLINK_FAST : LED_ON);
                 vTaskDelay(pdMS_TO_TICKS(300));
                 app_led_set(LED_ON);
@@ -64,7 +66,7 @@ static void contact_task(void *arg)
             hb += 50;
             if (hb >= SENSOR_HEARTBEAT_MS) {
                 hb = 0;
-                mqtt_sensor_publish_contact(contact_input_state_str(), 100, -50);
+                coap_sensor_publish_contact(contact_input_state_str(), 100, -50);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(50));

@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
@@ -50,17 +51,63 @@ static void parse_adv_name(const uint8_t *data, uint8_t len, char *name, size_t 
     }
 }
 
+static int write_long_cb(uint16_t conn, const struct ble_gatt_error *error,
+                         struct ble_gatt_attr *attr, void *arg)
+{
+    (void)attr; (void)arg;
+    int status = error ? error->status : 0;
+    ESP_LOGI(TAG, "write_long provision status=%d", status);
+    s_prov_result = (status == 0) ? ESP_OK : ESP_FAIL;
+    ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
+    xSemaphoreGive(s_prov_done);
+    return 0;
+}
+
+static int gatt_chr_cb(uint16_t conn, const struct ble_gatt_error *error,
+                       const struct ble_gatt_chr *chr, void *arg);
+
+static int mtu_cb(uint16_t conn, const struct ble_gatt_error *error, uint16_t mtu, void *arg)
+{
+    (void)arg;
+    ESP_LOGI(TAG, "mtu exchange status=%d mtu=%d", error ? error->status : 0, mtu);
+    /* Whether or not the MTU exchange succeeded, proceed to discover the
+     * provision characteristic and write to it. A larger MTU just means
+     * fewer ATT fragments for the write-long procedure, so it finishes
+     * faster and is less likely to straddle a Thread-stack-induced BLE
+     * scheduling stall on the hub. */
+    ble_uuid16_t u = BLE_UUID16_INIT(0xFFF2);
+    ble_gattc_disc_chrs_by_uuid(conn, 1, 0xFFFF, &u.u, gatt_chr_cb, NULL);
+    return 0;
+}
+
 static int gatt_chr_cb(uint16_t conn, const struct ble_gatt_error *error,
                        const struct ble_gatt_chr *chr, void *arg)
 {
     if (error->status == BLE_HS_EDONE) return 0;
     if (error->status != 0) { s_prov_result = ESP_FAIL; xSemaphoreGive(s_prov_done); return 0; }
     if (!chr) return 0;
-    int rc = ble_gattc_write_no_rsp_flat(conn, chr->val_handle, s_prov_json, strlen(s_prov_json));
-    ESP_LOGI(TAG, "write provision rc=%d", rc);
-    s_prov_result = (rc == 0) ? ESP_OK : ESP_FAIL;
-    ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
-    xSemaphoreGive(s_prov_done);
+    /*
+     * The provision JSON (Thread dataset + ids) is far larger than a single
+     * ATT packet (~20 bytes with the default MTU). ble_gattc_write_no_rsp*
+     * silently truncates to one packet; ble_gattc_write_long uses the
+     * prepare-write/execute-write queued procedure to send it in full.
+     */
+    size_t len = strlen(s_prov_json);
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(s_prov_json, len);
+    if (!om) {
+        ESP_LOGE(TAG, "mbuf alloc failed for %d-byte provision payload", (int)len);
+        s_prov_result = ESP_ERR_NO_MEM;
+        ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
+        xSemaphoreGive(s_prov_done);
+        return 0;
+    }
+    int rc = ble_gattc_write_long(conn, chr->val_handle, 0, om, write_long_cb, NULL);
+    ESP_LOGI(TAG, "write_long provision len=%d rc=%d", (int)len, rc);
+    if (rc != 0) {
+        s_prov_result = ESP_FAIL;
+        ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
+        xSemaphoreGive(s_prov_done);
+    }
     return 0;
 }
 
@@ -94,8 +141,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             s_prov_result = ESP_FAIL; xSemaphoreGive(s_prov_done); return 0;
         }
         s_conn_handle = event->connect.conn_handle;
-        { ble_uuid16_t u = BLE_UUID16_INIT(0xFFF2);
-          ble_gattc_disc_chrs_by_uuid(s_conn_handle, 1, 0xFFFF, &u.u, gatt_chr_cb, NULL); }
+        ble_gattc_exchange_mtu(s_conn_handle, mtu_cb, NULL);
         return 0;
     default: return 0;
     }
@@ -175,20 +221,60 @@ static int parse_addr(const char *str, ble_addr_t *addr)
     return 0;
 }
 
-esp_err_t ble_central_provision(const char *addr_str, const char *provision_json)
+static esp_err_t provision_attempt(const ble_addr_t *addr)
 {
-    if (!addr_str || !provision_json) return ESP_ERR_INVALID_ARG;
-    ble_central_stop_scan();
-    strncpy(s_prov_json, provision_json, sizeof(s_prov_json) - 1);
     s_prov_result = ESP_FAIL;
-    ble_addr_t addr;
-    if (parse_addr(addr_str, &addr) != 0) return ESP_ERR_INVALID_ARG;
     xSemaphoreTake(s_prov_done, 0);
-    int rc = ble_gap_connect(BLE_OWN_ADDR_PUBLIC, &addr, 30000, NULL, gap_event, NULL);
+    /*
+     * write_long sends the ~270+ byte provision JSON as a series of
+     * prepare-write PDUs over several connection intervals. With the
+     * NimBLE-default conn params (params=NULL) the supervision timeout is
+     * only ~2.56s, which is too short while the hub's OpenThread stack is
+     * busy (mesh attach/parent-request, Wi-Fi/BT coexistence) and can steal
+     * enough air-time to miss connection events -> link drops mid-write
+     * (BLE_HS_ENOTCONN). Use a longer supervision timeout so the link
+     * survives those stalls; the write itself is still bounded by the
+     * 20s semaphore wait below.
+     */
+    struct ble_gap_conn_params conn_params = {
+        .scan_itvl = 0x10,
+        .scan_window = 0x10,
+        .itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN,
+        .itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX,
+        .latency = 0,
+        .supervision_timeout = 800, /* 8s, in 10ms units */
+        .min_ce_len = 0,
+        .max_ce_len = 0,
+    };
+    int rc = ble_gap_connect(BLE_OWN_ADDR_PUBLIC, addr, 30000, &conn_params, gap_event, NULL);
     if (rc != 0) { ESP_LOGE(TAG, "connect rc=%d", rc); return ESP_FAIL; }
     if (xSemaphoreTake(s_prov_done, pdMS_TO_TICKS(20000)) != pdTRUE) {
         ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
         return ESP_ERR_TIMEOUT;
     }
     return s_prov_result;
+}
+
+esp_err_t ble_central_provision(const char *addr_str, const char *provision_json)
+{
+    if (!addr_str || !provision_json) return ESP_ERR_INVALID_ARG;
+    ble_central_stop_scan();
+    strncpy(s_prov_json, provision_json, sizeof(s_prov_json) - 1);
+    ble_addr_t addr;
+    if (parse_addr(addr_str, &addr) != 0) return ESP_ERR_INVALID_ARG;
+
+    /*
+     * The hub's OpenThread stack periodically needs to re-attach/refresh its
+     * mesh role, which can starve the BLE link of air-time for a couple of
+     * seconds and drop it mid write-long (see provision_attempt() comment).
+     * That's a transient collision, not a permanent failure, so retry once
+     * before giving up and surfacing an error to the dashboard.
+     */
+    esp_err_t err = provision_attempt(&addr);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "provision attempt 1 failed (%s) — retrying", esp_err_to_name(err));
+        vTaskDelay(pdMS_TO_TICKS(500));
+        err = provision_attempt(&addr);
+    }
+    return err;
 }
